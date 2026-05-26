@@ -91,7 +91,7 @@ Eigen-Viz-Studio/
 
 ### 1. リポジトリのクローン
 ```bash
-git clone https://github.com/あなたのユーザー名/Eigen-Viz-Studio.git
+git clone https://github.com/TakumaNarusawa/Eigen-Viz-Studio.git
 cd Eigen-Viz-Studio
 ```
 
