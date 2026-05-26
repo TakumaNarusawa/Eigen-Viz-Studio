@@ -3,6 +3,11 @@
 固有値・固有ベクトルの極上可視化Webアプリケーション。
 ブラウザ上で動作する数学エンジン（Pyodide & SymPy）を利用し、2D平面や3D空間における線形変換を視覚的に理解するための教育・可視化ツールです。
 
+## 公開URL
+
+本アプリケーションは、以下のURLで公開されています。
+- [Eigen-Viz Studio デモサイト](https://eigen-viz-studio.takumanarusawa.workers.dev/)
+
 ## 主な機能
 
 - **2D 平面変換**: 2x2行列による空間の変形と、向きが変わらないベクトル（固有ベクトル）の可視化。
@@ -24,6 +29,3 @@
    ```
 2. ブラウザで `http://localhost:8000/` にアクセスします。
 3. 画面上のコントロールパネルから変換行列を入力するか、プリセットを選択して変換を実行してください。
-# Eigen-Viz-Studio
-# Eigen-Viz-Studio
-# Eigen-Viz-Studio
