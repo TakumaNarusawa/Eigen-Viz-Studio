@@ -41,17 +41,9 @@
 
     // --- HUD updates ---
     const hudStatus = document.getElementById('hud-status');
-    const progressContainer = document.getElementById('hud-anim-progress-container');
-    const progressBar = document.getElementById('hud-progress-bar');
 
     function updateHUD(status, progress = null) {
         hudStatus.textContent = status;
-        if (progress !== null) {
-            progressContainer.style.display = 'flex';
-            progressBar.style.width = `${progress * 100}%`;
-        } else {
-            progressContainer.style.display = 'none';
-        }
     }
 
     // --- Reset 2D State ---
@@ -63,7 +55,7 @@
         complexU = null;
         complexW = null;
         document.getElementById('results').style.display = 'none';
-        document.getElementById('btn-diagonalize').style.display = 'none';
+        document.getElementById('btn-diagonalize').disabled = true;
         updateHUD("待機中");
     };
 
@@ -487,7 +479,7 @@
             matrixD = null;
             matrixPInv = null;
             isDiagonalizable = false;
-            document.getElementById('btn-diagonalize').style.display = 'none';
+            document.getElementById('btn-diagonalize').disabled = true;
 
             if (resData.has_complex_eigenvectors) {
                 let html = `実数の固有ベクトルが存在しません。<br>代わりに、<b>不変楕円の軌道</b>（複素固有ベクトルの実部・虚部が張る空間）が現れます。`;
@@ -560,7 +552,7 @@
                     matrixP = resData.matrix_p;
                     matrixD = resData.matrix_d;
                     matrixPInv = resData.matrix_p_inv;
-                    document.getElementById('btn-diagonalize').style.display = 'inline-block';
+                    document.getElementById('btn-diagonalize').disabled = false;
                 } else if (resData.not_diagonalizable_reason) {
                     let reasonText = "対角化できません。";
                     if (resData.not_diagonalizable_reason === "singular_p_matrix") {

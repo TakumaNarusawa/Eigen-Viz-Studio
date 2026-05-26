@@ -181,18 +181,10 @@ function updateObjectsWithMatrix(mat) {
 
 // --- HUD Controller for 3D ---
 const hudStatus = document.getElementById('hud-status');
-const progressContainer = document.getElementById('hud-anim-progress-container');
-const progressBar = document.getElementById('hud-progress-bar');
 
 function updateHUD(status, progress = null) {
     if (!document.body.classList.contains('mode-3d')) return;
     hudStatus.textContent = status;
-    if (progress !== null) {
-        progressContainer.style.display = 'flex';
-        progressBar.style.width = `${progress * 100}%`;
-    } else {
-        progressContainer.style.display = 'none';
-    }
 }
 
 // --- Reset 3D App State ---
@@ -202,7 +194,7 @@ window.resetApp3D = function () {
     animationProgress = 0;
     eigenGroup.clear();
     document.getElementById('results').style.display = 'none';
-    document.getElementById('btn-diagonalize').style.display = 'none';
+    document.getElementById('btn-diagonalize').disabled = true;
     controls.reset();
 
     // Reset standard grid lines
@@ -450,7 +442,7 @@ document.getElementById('btn-transform').addEventListener('click', async () => {
 
         eigenGroup.clear();
         isDiagonalizable = false;
-        document.getElementById('btn-diagonalize').style.display = 'none';
+        document.getElementById('btn-diagonalize').disabled = true;
 
         let html = '';
         let seenIndices = new Set();
@@ -504,7 +496,7 @@ document.getElementById('btn-transform').addEventListener('click', async () => {
             matrixP = resData.matrix_p;
             matrixD = resData.matrix_d;
             matrixPInv = resData.matrix_p_inv;
-            document.getElementById('btn-diagonalize').style.display = 'block';
+            document.getElementById('btn-diagonalize').disabled = false;
         } else if (resData.not_diagonalizable_reason) {
             let reasonText = "対角化できません。";
             if (resData.not_diagonalizable_reason === "singular_p_matrix") {

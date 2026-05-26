@@ -129,8 +129,8 @@
 
         <!-- Primary Actions -->
         <div class="action-buttons">
-          <button id="btn-transform" class="btn primary">変換を実行</button>
-          <button id="btn-diagonalize" class="btn special" style="display: none;">対角化アニメーション</button>
+          <button id="btn-transform" class="btn primary">変換実行</button>
+          <button id="btn-diagonalize" class="btn special" disabled>対角化</button>
           <button id="btn-reset" class="btn secondary">リセット</button>
         </div>
 
@@ -158,12 +158,6 @@
         <div class="hud-item">
           <span class="hud-label">状態</span>
           <span id="hud-status" class="hud-value color-glow">待機中</span>
-        </div>
-        <div id="hud-anim-progress-container" class="hud-item" style="display: none;">
-          <span class="hud-label">進捗</span>
-          <div class="progress-bar-container">
-            <div id="hud-progress-bar" class="progress-bar"></div>
-          </div>
         </div>
       </div>
     </section>
