@@ -198,6 +198,12 @@
         let glowStrength = (transformState === 1) ? Math.min(1.0, highlightTick / 30.0) : 1.0;
         if (transformState === 0) glowStrength = 0;
 
+        // 生き生きとした呼吸するような明滅(パルス)を追加して、静的な基底ベクトルと差別化
+        if (glowStrength > 0) {
+            const pulse = 0.8 + 0.2 * Math.sin(Date.now() * 0.005);
+            glowStrength = glowStrength * pulse;
+        }
+
         if (glowStrength > 0) {
             if (eigenAngles.length > 0) {
                 // Real Eigenvectors Axis
@@ -348,8 +354,19 @@
 
         // i-hat (Red/Coral)
         drawArrow(centerX, centerY, centerX + ix * scale, centerY - iy * scale, '#f87171');
+        ctx.fillStyle = '#f87171';
+        ctx.font = "italic bold 15px 'Outfit', sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText("î", centerX + ix * scale + 8, centerY - iy * scale);
+
         // j-hat (Green/Emerald)
         drawArrow(centerX, centerY, centerX + jx * scale, centerY - jy * scale, '#34d399');
+        ctx.fillStyle = '#34d399';
+        ctx.font = "italic bold 15px 'Outfit', sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "bottom";
+        ctx.fillText("ĵ", centerX + jx * scale + 8, centerY - jy * scale - 2);
 
         // DRAW ORIGIN POINT
         ctx.beginPath(); ctx.arc(centerX, centerY, 5, 0, 2 * Math.PI);
@@ -362,27 +379,60 @@
     // ==========================================================================
     // MATHEMATICAL WEB WORKER CONTROLLER (2D/3D SHARED ENGINE INITIALIZATION)
     // ==========================================================================
-    window.pyodideReady = false;
-    window.myWorker = new Worker('worker.js');
-
     const statusBadge = document.getElementById('engine-status-badge');
     const loadingOverlay = document.getElementById('loading-overlay');
 
-    window.myWorker.onmessage = function (e) {
-        if (e.data.type === 'STATUS' && e.data.status === 'ready') {
-            window.pyodideReady = true;
-            statusBadge.textContent = "SymPy Engine Ready";
-            statusBadge.className = "badge ready";
-            loadingOverlay.style.opacity = '0';
-            setTimeout(() => loadingOverlay.style.display = 'none', 500);
-        } else if (e.data.type === 'ERROR') {
-            console.error("Worker Core Fail:", e.data.error);
-            document.getElementById('loading-text').innerHTML = `
-              <h2 style="color: #ef4444;">エンジン起動エラー</h2>
-              <p>数学エンジンの準備に失敗しました。<br><span style="color: #9ca3af; font-size: 0.8em;">${e.data.error}</span></p>
-            `;
+    window.setupWorker = function () {
+        if (window.myWorker) {
+            window.myWorker.terminate();
         }
+        window.pyodideReady = false;
+        
+        if (statusBadge) {
+            statusBadge.textContent = "Engine Loading...";
+            statusBadge.className = "badge readying";
+        }
+        
+        window.myWorker = new Worker('worker.js');
+        
+        window.myWorker.onmessage = function (e) {
+            if (e.data.type === 'STATUS' && e.data.status === 'ready') {
+                window.pyodideReady = true;
+                if (statusBadge) {
+                    statusBadge.textContent = "SymPy Engine Ready";
+                    statusBadge.className = "badge ready";
+                }
+                const overlay = document.getElementById('loading-overlay');
+                if (overlay) {
+                    overlay.style.opacity = '0';
+                    setTimeout(() => overlay.style.display = 'none', 500);
+                }
+            } else if (e.data.type === 'ERROR') {
+                console.error("Worker Core Fail:", e.data.error);
+                const loadingText = document.getElementById('loading-text');
+                if (loadingText) {
+                    loadingText.textContent = "";
+                    const h2 = document.createElement('h2');
+                    h2.style.color = "#ef4444";
+                    h2.textContent = "エンジン起動エラー";
+                    const p = document.createElement('p');
+                    p.textContent = "数学エンジンの準備に失敗しました。";
+                    const br = document.createElement('br');
+                    const span = document.createElement('span');
+                    span.style.color = "#9ca3af";
+                    span.style.fontSize = "0.8em";
+                    span.textContent = e.data.error;
+                    p.appendChild(br);
+                    p.appendChild(span);
+                    loadingText.appendChild(h2);
+                    loadingText.appendChild(p);
+                }
+            }
+        };
     };
+
+    window.restartWorker = window.setupWorker;
+    window.setupWorker();
 
     // --- Click Event: Matrix Transform (2D Part) ---
     /**
@@ -440,9 +490,12 @@
             try {
                 pyResultStr = await new Promise((resolve, reject) => {
                     const timeoutId = setTimeout(() => {
-                        window.myWorker.terminate();
-                        // Re-initialize a new worker to recover
-                        window.myWorker = new Worker('worker.js');
+                        if (window.restartWorker) {
+                            window.restartWorker();
+                        } else {
+                            window.myWorker.terminate();
+                            window.myWorker = new Worker('worker.js');
+                        }
                         reject(new Error("計算タイムアウト: 行列が複雑すぎて 3秒 を超えました。プロセスの暴走を防ぐため終了しました。"));
                     }, 3000);
 
@@ -564,7 +617,7 @@
                     warnDiv.style.color = '#f59e0b';
                     warnDiv.style.marginTop = '10px';
                     warnDiv.style.fontSize = '0.85rem';
-                    warnDiv.innerHTML = `※ ${reasonText}`;
+                    warnDiv.textContent = `※ ${reasonText}`;
                     html += warnDiv.outerHTML;
                 }
                 statusEl.innerHTML = html;
@@ -611,7 +664,11 @@
         const resultsPanel = document.getElementById('results');
         const statusEl = document.getElementById('status');
         resultsPanel.style.display = 'block';
-        statusEl.innerHTML = `<span style="color:#ef4444">${msg}</span>`;
+        statusEl.textContent = "";
+        const span = document.createElement('span');
+        span.style.color = "#ef4444";
+        span.textContent = msg;
+        statusEl.appendChild(span);
     }
 
 })();

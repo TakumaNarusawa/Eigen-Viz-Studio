@@ -318,8 +318,11 @@ function renderLoop() {
     let glowStrength = (transformState === 1) ? Math.min(1.0, highlightTick / 30.0) : 1.0;
     if (transformState === 0) glowStrength = 0;
 
+    // 生き生きとした呼吸するような明滅(パルス)を追加して静的な基底ベクトルと区別
+    const pulse = 0.75 + 0.25 * Math.sin(Date.now() * 0.004);
+
     eigenGroup.children.forEach(line => {
-        line.material.opacity = glowStrength * 0.8;
+        line.material.opacity = glowStrength * 0.85 * pulse;
         if (line.userData.originalVector) {
             let orig = line.userData.originalVector;
             let tx = currentMatrix[0][0] * orig.x + currentMatrix[0][1] * orig.y + currentMatrix[0][2] * orig.z;
@@ -411,8 +414,12 @@ document.getElementById('btn-transform').addEventListener('click', async () => {
         try {
             pyResultStr = await new Promise((resolve, reject) => {
                 const timeoutId = setTimeout(() => {
-                    window.myWorker.terminate();
-                    window.myWorker = new Worker('worker.js');
+                    if (window.restartWorker) {
+                        window.restartWorker();
+                    } else {
+                        window.myWorker.terminate();
+                        window.myWorker = new Worker('worker.js');
+                    }
                     reject(new Error("計算タイムアウト: 行列が複雑すぎて 5秒 を超えました。プロセスの暴走を防ぐため終了しました。"));
                 }, 5000);
 
@@ -482,10 +489,17 @@ document.getElementById('btn-transform').addEventListener('click', async () => {
                 let vecF = resData.eigenvectors_float[idx];
                 if (vecF[0] !== 0 || vecF[1] !== 0 || vecF[2] !== 0) {
                     let v3 = new THREE.Vector3(vecF[0], vecF[1], vecF[2]).normalize().multiplyScalar(gridSize * 1.5);
-                    const mat = new THREE.LineBasicMaterial({ color: 0x10b981, linewidth: 3, transparent: true, opacity: 0 }); // Emerald glow
+                    const mat = new THREE.LineDashedMaterial({
+                        color: 0x00f5ff, // 鮮やかなネオンシアンで基底(緑)と完全差別化
+                        dashSize: 0.25,
+                        gapSize: 0.12,
+                        transparent: true,
+                        opacity: 0
+                    });
                     const geom = new THREE.BufferGeometry().setFromPoints([v3.clone().negate(), v3]);
                     const line = new THREE.Line(geom, mat);
                     line.userData.originalVector = new THREE.Vector3(vecF[0], vecF[1], vecF[2]);
+                    line.computeLineDistances(); // 破線描画に必要
                     eigenGroup.add(line);
                 }
             });
@@ -510,7 +524,7 @@ document.getElementById('btn-transform').addEventListener('click', async () => {
             warnDiv.style.color = '#f59e0b';
             warnDiv.style.marginTop = '10px';
             warnDiv.style.fontSize = '0.85rem';
-            warnDiv.innerHTML = `※ ${reasonText}`;
+            warnDiv.textContent = `※ ${reasonText}`;
             html += warnDiv.outerHTML;
         }
         statusEl.innerHTML = html;
@@ -562,5 +576,9 @@ function show3DError(msg) {
     const resultsPanel = document.getElementById('results');
     const statusEl = document.getElementById('status');
     resultsPanel.style.display = 'block';
-    statusEl.innerHTML = `<span style="color:#ef4444">${msg}</span>`;
+    statusEl.textContent = "";
+    const span = document.createElement('span');
+    span.style.color = "#ef4444";
+    span.textContent = msg;
+    statusEl.appendChild(span);
 }
