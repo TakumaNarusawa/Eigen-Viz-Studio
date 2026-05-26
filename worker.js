@@ -260,7 +260,8 @@ self.onmessage = async (event) => {
             return;
         }
         try {
-            const pyResultStr = pyodideInstance.runPython(`calculate_eigen_json('${JSON.stringify(msg.matrix)}')`);
+            pyodideInstance.globals.set("js_matrix_data", JSON.stringify(msg.matrix));
+            const pyResultStr = pyodideInstance.runPython(`calculate_eigen_json(js_matrix_data)`);
             postMessage({ type: 'RESULT', payload: pyResultStr });
         } catch (err) {
             postMessage({ type: 'RESULT', payload: JSON.stringify({error: "Python実行エラー: " + err.message})});
