@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eigen-Viz Studio | 固有値・固有ベクトルの極上可視化</title>
+  
+  <!-- Modern Typography (Inter & Outfit) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css?v=4">
+  
+  <!-- KaTeX for rendering math -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  
+  <!-- Pyodide -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
+  
+  <!-- Import map for Three.js (used in 3D mode) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body class="mode-2d">
+  <!-- Loading Overlay -->
+  <div id="loading-overlay">
+    <div class="spinner-container">
+      <div class="double-bounce1"></div>
+      <div class="double-bounce2"></div>
+    </div>
+    <div id="loading-text">
+      <h2>数学エンジン起動中</h2>
+      <p>Pyodide & SymPy をブラウザ上でロードしています...<br><span>初回ロードには数秒かかります。</span></p>
+    </div>
+  </div>
+
+  <!-- Header Nav (Mode Switcher) -->
+  <header>
+    <div class="logo">
+      <span class="logo-accent">Eigen</span>Viz Studio
+    </div>
+    <div class="mode-selector">
+      <button id="tab-2d" class="active">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+        2D 平面変換
+      </button>
+      <button id="tab-3d">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        3D 空間変換
+      </button>
+    </div>
+    <div class="header-status">
+      <span id="engine-status-badge" class="badge readying">Engine Loading...</span>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="app-container">
+    
+    <!-- Control Panel -->
+    <section class="ui-panel glass">
+      <div class="panel-header">
+        <h1 id="panel-title">線形変換と固有ベクトル</h1>
+        <p id="panel-desc" class="panel-desc">2次元空間の変形（行列A）を与え、その中で向きのブレない特別な矢印（固有ベクトル）を見つけ出します。</p>
+      </div>
+
+      <div class="panel-body">
+        
+        <!-- Matrix Input Container -->
+        <div class="matrix-section">
+          <h3>変換行列 <span class="math-symbol">A</span></h3>
+          
+          <!-- 2D Matrix (shown in 2D mode) -->
+          <div id="matrix-2d-container" class="matrix-input">
+            <div class="matrix-row">
+              <input type="number" id="m00" value="1" step="any" placeholder="a">
+              <input type="number" id="m01" value="1" step="any" placeholder="b">
+            </div>
+            <div class="matrix-row">
+              <input type="number" id="m10" value="0" step="any" placeholder="c">
+              <input type="number" id="m11" value="2" step="any" placeholder="d">
+            </div>
+          </div>
+
+          <!-- 3D Matrix (shown in 3D mode) -->
+          <div id="matrix-3d-container" class="matrix-input" style="display: none;">
+            <div class="matrix-row">
+              <input type="number" id="m3d_00" value="2" step="any" placeholder="a">
+              <input type="number" id="m3d_01" value="0" step="any" placeholder="b">
+              <input type="number" id="m3d_02" value="0" step="any" placeholder="c">
+            </div>
+            <div class="matrix-row">
+              <input type="number" id="m3d_10" value="0" step="any" placeholder="d">
+              <input type="number" id="m3d_11" value="3" step="any" placeholder="e">
+              <input type="number" id="m3d_12" value="1" step="any" placeholder="f">
+            </div>
+            <div class="matrix-row">
+              <input type="number" id="m3d_20" value="0" step="any" placeholder="g">
+              <input type="number" id="m3d_21" value="0" step="any" placeholder="h">
+              <input type="number" id="m3d_22" value="1" step="any" placeholder="i">
+            </div>
+          </div>
+        </div>
+
+        <!-- Preset Section -->
+        <div class="presets-section">
+          <h3>プリセット</h3>
+          <div id="presets-2d" class="presets-grid">
+            <button class="preset-btn" data-val="1,1,0,2">剪断 & 拡大</button>
+            <button class="preset-btn" data-val="0,1,-1,0">90度回転</button>
+            <button class="preset-btn" data-val="2,1,1,2">対称行列 (直交)</button>
+            <button class="preset-btn" data-val="1,1,1,1">特異行列 (潰れ)</button>
+          </div>
+          <div id="presets-3d" class="presets-grid" style="display: none;">
+            <button class="preset-btn" data-val="2,0,0, 0,3,1, 0,0,1">標準デモ</button>
+            <button class="preset-btn" data-val="1,0,0, 0,0,-1, 0,1,0">X軸中心90度回転</button>
+            <button class="preset-btn" data-val="2,1,1, 1,2,1, 1,1,2">3D対称行列</button>
+            <button class="preset-btn" data-val="1,0.5,0.5, 0.5,1,0.5, 0.5,0.5,1">3D剪断</button>
+          </div>
+        </div>
+
+        <!-- Primary Actions -->
+        <div class="action-buttons">
+          <button id="btn-transform" class="btn primary">変換を実行</button>
+          <button id="btn-diagonalize" class="btn special" style="display: none;">対角化アニメーション</button>
+          <button id="btn-reset" class="btn secondary">リセット</button>
+        </div>
+
+        <!-- Dynamic Math Results Panel -->
+        <div id="results" class="results-panel glass-dark" style="display: none;">
+          <div class="results-header">
+            <h4>計算結果 (SymPy解析)</h4>
+          </div>
+          <div id="status"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Canvas (Visualization) Viewport -->
+    <section class="viewport-panel">
+      <!-- 2D HTML5 Canvas Container -->
+      <div id="canvas-container-2d" class="canvas-wrapper"></div>
+      
+      <!-- 3D Three.js Container -->
+      <div id="canvas-container-3d" class="canvas-wrapper" style="display: none;"></div>
+
+      <!-- Live Vector/Angle HUD (Glassmorphism overlay on canvas) -->
+      <div id="visual-hud" class="visual-hud glass">
+        <div class="hud-item">
+          <span class="hud-label">状態</span>
+          <span id="hud-status" class="hud-value color-glow">待機中</span>
+        </div>
+        <div id="hud-anim-progress-container" class="hud-item" style="display: none;">
+          <span class="hud-label">進捗</span>
+          <div class="progress-bar-container">
+            <div id="hud-progress-bar" class="progress-bar"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Loader Script & App Controllers -->
+  <script src="main_2d.js?v=5"></script>
+  <script type="module" src="main_3d.js?v=5"></script>
+  
+  <!-- Portal/Tab Switcher Logic -->
+  <script>
+    const tab2d = document.getElementById('tab-2d');
+    const tab3d = document.getElementById('tab-3d');
+    const body = document.body;
+    
+    const panelTitle = document.getElementById('panel-title');
+    const panelDesc = document.getElementById('panel-desc');
+    const matrix2dContainer = document.getElementById('matrix-2d-container');
+    const matrix3dContainer = document.getElementById('matrix-3d-container');
+    const presets2d = document.getElementById('presets-2d');
+    const presets3d = document.getElementById('presets-3d');
+    const canvas2d = document.getElementById('canvas-container-2d');
+    const canvas3d = document.getElementById('canvas-container-3d');
+    
+    // Switch to 2D mode
+    tab2d.addEventListener('click', () => {
+      if (tab2d.classList.contains('active')) return;
+      tab2d.classList.add('active');
+      tab3d.classList.remove('active');
+      body.className = 'mode-2d';
+      
+      panelTitle.textContent = "線形変換と固有ベクトル";
+      panelDesc.innerHTML = "2次元空間の変形（行列A）を与え、その中で向きのブレない特別な矢印（固有ベクトル）を見つけ出します。";
+      
+      matrix2dContainer.style.display = 'flex';
+      matrix3dContainer.style.display = 'none';
+      presets2d.style.display = 'grid';
+      presets3d.style.display = 'none';
+      canvas2d.style.display = 'block';
+      canvas3d.style.display = 'none';
+      
+      // Reset visual state
+      if (window.resetApp2D) window.resetApp2D();
+      if (window.resizeCanvas2D) window.resizeCanvas2D();
+    });
+
+    // Switch to 3D mode
+    tab3d.addEventListener('click', () => {
+      if (tab3d.classList.contains('active')) return;
+      tab3d.classList.add('active');
+      tab2d.classList.remove('active');
+      body.className = 'mode-3d';
+      
+      panelTitle.textContent = "3次元線形変換と固有ベクトル";
+      panelDesc.innerHTML = "3次元空間の変形（3x3行列A）を与え、その中で「向きの変わらない回転・伸縮軸（固有空間）」を見つけ出します。<br><span style='color: #a855f7;'>※画面のドラッグで視点を回転できます。</span>";
+      
+      matrix2dContainer.style.display = 'none';
+      matrix3dContainer.style.display = 'flex';
+      presets2d.style.display = 'none';
+      presets3d.style.display = 'grid';
+      canvas2d.style.display = 'none';
+      canvas3d.style.display = 'block';
+      
+      // Reset visual state
+      if (window.resetApp3D) window.resetApp3D();
+      if (window.resizeCanvas3D) window.resizeCanvas3D();
+    });
+
+    // Presets handler
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const valStr = btn.getAttribute('data-val');
+        const vals = valStr.split(',').map(v => parseFloat(v));
+        
+        if (body.classList.contains('mode-2d')) {
+          document.getElementById('m00').value = vals[0];
+          document.getElementById('m01').value = vals[1];
+          document.getElementById('m10').value = vals[2];
+          document.getElementById('m11').value = vals[3];
+          document.getElementById('btn-transform').click();
+        } else {
+          document.getElementById('m3d_00').value = vals[0];
+          document.getElementById('m3d_01').value = vals[1];
+          document.getElementById('m3d_02').value = vals[2];
+          document.getElementById('m3d_10').value = vals[3];
+          document.getElementById('m3d_11').value = vals[4];
+          document.getElementById('m3d_12').value = vals[5];
+          document.getElementById('m3d_20').value = vals[6];
+          document.getElementById('m3d_21').value = vals[7];
+          document.getElementById('m3d_22').value = vals[8];
+          document.getElementById('btn-transform').click();
+        }
+      });
+    });
+  </script>
+</body>
+</html>
