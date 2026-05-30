@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
   
   <!-- KaTeX for rendering math -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
@@ -58,6 +58,10 @@
       </button>
     </div>
     <div class="header-status">
+      <button id="btn-guide" class="btn-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        使い方ガイド
+      </button>
       <span id="engine-status-badge" class="badge readying">Engine Loading...</span>
     </div>
   </header>
@@ -164,6 +168,41 @@
 
   </main>
 
+  <!-- Guide Modal (Help Dialog) -->
+  <div id="guide-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content glass-dark">
+      <div class="modal-header">
+        <h2>🌌 Eigen-Viz Studio 使い方ガイド</h2>
+        <button id="btn-close-guide" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <section class="guide-step">
+          <h3>1. モードの切り替え</h3>
+          <p>ヘッダーのボタンから <b>「2D平面変換」</b> または <b>「3D空間変換」</b> をいつでも自由に切り替えられます。</p>
+        </section>
+        <section class="guide-step">
+          <h3>2. 行列値の入力と変換</h3>
+          <p>左パネルの「変換行列 A」に任意の数値を入力するか、「プリセット（剪断、回転、対称行列など）」をクリックします。<b>「変換実行」</b>ボタンを押すと、空間がダイナミックに変形するアニメーションが走ります。</p>
+        </section>
+        <section class="guide-step">
+          <h3>3. 固有空間とホバー連動</h3>
+          <p>解析が完了すると、左下に「固有値・固有ベクトル」の数式が表示されます。<b>数式カードの上にマウスをホバー</b>すると、画面上の対応する「固有軸」がダイナミックにネオン発光し、それ以外が減光します。</p>
+        </section>
+        <section class="guide-step">
+          <h3>4. 行列の対角化（幾何学アニメーション）</h3>
+          <p>対角化可能な行列の場合、<b>「対角化」</b>ボタンが有効化されます。クリックすると、$\mathbf{A} = \mathbf{P}\mathbf{D}\mathbf{P}^{-1}$ の変形プロセス（基底変換 $\rightarrow$ 固有値倍伸縮 $\rightarrow$ 元の基底へ戻す）の3段階幾何学変形アニメーションが滑らかな動きで再生されます。</p>
+        </section>
+        <section class="guide-step">
+          <h3>5. その他の操作</h3>
+          <p>・<b>3Dモード</b>: 画面をドラッグすることで視点（カメラ）を360度自由に回転させられます。<br>・<b>リセット</b>: 「リセット」ボタンでいつでも初期の変形前状態に戻せます。</p>
+        </section>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-start-guide" class="btn primary" style="width: 100%;">スタート！</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Loader Script & App Controllers -->
   <script src="main_2d.js?v=5"></script>
   <script type="module" src="main_3d.js?v=5"></script>
@@ -200,8 +239,10 @@
       canvas2d.style.display = 'block';
       canvas3d.style.display = 'none';
       
-      // Reset visual state
+      // Reset visual state & toggle render loops
+      if (window.stopApp3D) window.stopApp3D();
       if (window.resetApp2D) window.resetApp2D();
+      if (window.startApp2D) window.startApp2D();
       if (window.resizeCanvas2D) window.resizeCanvas2D();
     });
 
@@ -222,8 +263,10 @@
       canvas2d.style.display = 'none';
       canvas3d.style.display = 'block';
       
-      // Reset visual state
+      // Reset visual state & toggle render loops
+      if (window.stopApp2D) window.stopApp2D();
       if (window.resetApp3D) window.resetApp3D();
+      if (window.startApp3D) window.startApp3D();
       if (window.resizeCanvas3D) window.resizeCanvas3D();
     });
 
@@ -253,6 +296,35 @@
         }
       });
     });
+
+    // Guide Modal Logic
+    const btnGuide = document.getElementById('btn-guide');
+    const guideModal = document.getElementById('guide-modal');
+    const btnCloseGuide = document.getElementById('btn-close-guide');
+    const btnStartGuide = document.getElementById('btn-start-guide');
+
+    function openGuide() {
+      guideModal.style.display = 'flex';
+      setTimeout(() => {
+        guideModal.classList.add('active');
+      }, 10);
+    }
+
+    function closeGuide() {
+      guideModal.classList.remove('active');
+      setTimeout(() => {
+        guideModal.style.display = 'none';
+      }, 400);
+    }
+
+    btnGuide.addEventListener('click', openGuide);
+    btnCloseGuide.addEventListener('click', closeGuide);
+    btnStartGuide.addEventListener('click', closeGuide);
+
+    guideModal.addEventListener('click', (e) => {
+      if (e.target === guideModal) closeGuide();
+    });
+
   </script>
 </body>
 </html>

@@ -26,7 +26,24 @@ controls.target.set(-1.5, 0, 0);
 controls.update();
 controls.saveState();
 
+// GPU memory deallocation helper to prevent leaks
+function clearGroup(group) {
+    group.children.forEach(child => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+    });
+    group.clear();
+}
+
 // Resize handling
+function debounce(func, wait) {
+    let timeout;
+    return function (...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+    };
+}
+
 function resize3D() {
     const width = container.clientWidth;
     const height = container.clientHeight;
@@ -34,7 +51,7 @@ function resize3D() {
     camera.updateProjectionMatrix();
     renderer.setSize(width, height);
 }
-window.addEventListener('resize', resize3D);
+window.addEventListener('resize', debounce(resize3D, 100));
 window.resizeCanvas3D = resize3D;
 
 // --- Animation States ---
@@ -46,6 +63,9 @@ let targetMatrix = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 let currentMatrix = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 let matrixP = null, matrixD = null, matrixPInv = null;
 let isDiagonalizable = false;
+
+// Optimized cache to prevent redrawing static states
+let lastMatrix = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
 
 // 3D Groups
 const gridGroup = new THREE.Group();
@@ -125,23 +145,29 @@ function createBasis() {
 }
 createBasis();
 
+// Convert 3x3 array to THREE.Matrix3 (Three.js expects row-major set values)
+function arrayToMatrix3(matArr) {
+    return new THREE.Matrix3().set(
+        matArr[0][0], matArr[0][1], matArr[0][2],
+        matArr[1][0], matArr[1][1], matArr[1][2],
+        matArr[2][0], matArr[2][1], matArr[2][2]
+    );
+}
+
 // --- Update Matrix Transformations in 3D Elements ---
 function updateObjectsWithMatrix(mat) {
+    const m3 = arrayToMatrix3(mat);
     let idx = 0;
+    
     gridGroup.children.forEach(lineMesh => {
         const orig = gridLinesOriginal[idx];
 
-        const tx1 = mat[0][0] * orig.p1[0] + mat[0][1] * orig.p1[1] + mat[0][2] * orig.p1[2];
-        const ty1 = mat[1][0] * orig.p1[0] + mat[1][1] * orig.p1[1] + mat[1][2] * orig.p1[2];
-        const tz1 = mat[2][0] * orig.p1[0] + mat[2][1] * orig.p1[1] + mat[2][2] * orig.p1[2];
-
-        const tx2 = mat[0][0] * orig.p2[0] + mat[0][1] * orig.p2[1] + mat[0][2] * orig.p2[2];
-        const ty2 = mat[1][0] * orig.p2[0] + mat[1][1] * orig.p2[1] + mat[1][2] * orig.p2[2];
-        const tz2 = mat[2][0] * orig.p2[0] + mat[2][1] * orig.p2[1] + mat[2][2] * orig.p2[2];
+        const p1 = new THREE.Vector3().fromArray(orig.p1).applyMatrix3(m3);
+        const p2 = new THREE.Vector3().fromArray(orig.p2).applyMatrix3(m3);
 
         const positions = lineMesh.geometry.attributes.position.array;
-        positions[0] = tx1; positions[1] = ty1; positions[2] = tz1;
-        positions[3] = tx2; positions[4] = ty2; positions[5] = tz2;
+        positions[0] = p1.x; positions[1] = p1.y; positions[2] = p1.z;
+        positions[3] = p2.x; positions[4] = p2.y; positions[5] = p2.z;
         lineMesh.geometry.attributes.position.needsUpdate = true;
 
         idx++;
@@ -192,7 +218,7 @@ window.resetApp3D = function () {
     transformState = 0;
     highlightTick = 0;
     animationProgress = 0;
-    eigenGroup.clear();
+    clearGroup(eigenGroup);
     document.getElementById('results').style.display = 'none';
     document.getElementById('btn-diagonalize').disabled = true;
     controls.reset();
@@ -207,15 +233,50 @@ window.resetApp3D = function () {
     updateHUD("待機中");
 };
 
+// --- Helper Functions for Matrix Calculations (3D) ---
+function matrixEquals3x3(A, B) {
+    for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+            if (Math.abs(A[i][j] - B[i][j]) > 1e-9) return false;
+        }
+    }
+    return true;
+}
+
+function interpolate3x3(M1, M2, t) {
+    let easeT = 1 - Math.pow(1 - t, 3);
+    let res = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+            res[i][j] = M1[i][j] + (M2[i][j] - M1[i][j]) * easeT;
+        }
+    }
+    return res;
+}
+
+function multiply3x3(A, B) {
+    let res = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+            res[i][j] = A[i][0] * B[0][j] + A[i][1] * B[1][j] + A[i][2] * B[2][j];
+        }
+    }
+    return res;
+}
+
 // --- Render Loop (Three.js Loop) ---
 /**
  * 3D空間のメイン描画ループ。
  * Three.js の renderer を用いてシーンを描画し、状態に応じた行列アニメーションを実行します。
  */
-function renderLoop() {
-    requestAnimationFrame(renderLoop);
+let animationId = null;
 
-    if (!document.body.classList.contains('mode-3d')) return;
+function renderLoop() {
+    if (!document.body.classList.contains('mode-3d')) {
+        animationId = null;
+        return;
+    }
+    animationId = requestAnimationFrame(renderLoop);
 
     controls.update();
 
@@ -273,46 +334,32 @@ function renderLoop() {
             currentMatrix = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
         } else {
             let p = animationProgress;
-
-            function interpolate3x3(M1, M2, t) {
-                let easeT = 1 - Math.pow(1 - t, 3);
-                let res = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-                for (let i = 0; i < 3; i++) {
-                    for (let j = 0; j < 3; j++) {
-                        res[i][j] = M1[i][j] + (M2[i][j] - M1[i][j]) * easeT;
-                    }
-                }
-                return res;
-            }
-
-            function multiply3x3(A, B) {
-                let res = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-                for (let i = 0; i < 3; i++) {
-                    for (let j = 0; j < 3; j++) {
-                        res[i][j] = A[i][0] * B[0][j] + A[i][1] * B[1][j] + A[i][2] * B[2][j];
-                    }
-                }
-                return res;
-            }
-
             const Identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
             if (p < 1) {
-                currentMatrix = interpolate3x3(Identity, matrixPInv, p);
+                let localEase = 1 - Math.pow(1 - p, 3); // Cubic Ease Out
+                currentMatrix = interpolate3x3(Identity, matrixPInv, localEase);
                 stepLabel = "Step 1: 基底変換 (P⁻¹)";
             } else if (p < 2) {
+                let localEase = 1 - Math.pow(1 - (p - 1), 3);
                 let d_p_inv = multiply3x3(matrixD, matrixPInv);
-                currentMatrix = interpolate3x3(matrixPInv, d_p_inv, p - 1);
+                currentMatrix = interpolate3x3(matrixPInv, d_p_inv, localEase);
                 stepLabel = "Step 2: 固有値倍 (D)";
             } else {
+                let localEase = 1 - Math.pow(1 - (p - 2), 3);
                 let d_p_inv = multiply3x3(matrixD, matrixPInv);
                 let p_d_p_inv = multiply3x3(matrixP, d_p_inv);
-                currentMatrix = interpolate3x3(d_p_inv, p_d_p_inv, p - 2);
+                currentMatrix = interpolate3x3(d_p_inv, p_d_p_inv, localEase);
                 stepLabel = "Step 3: 元の基底へ (P)";
             }
         }
     }
 
-    updateObjectsWithMatrix(currentMatrix);
+    // Optimize: Only update geometries if matrix actually changed
+    const isMatrixChanged = !matrixEquals3x3(currentMatrix, lastMatrix);
+    if (isMatrixChanged) {
+        updateObjectsWithMatrix(currentMatrix);
+        lastMatrix = JSON.parse(JSON.stringify(currentMatrix));
+    }
 
     // Animate Real Eigenvectors Glow
     let glowStrength = (transformState === 1) ? Math.min(1.0, highlightTick / 30.0) : 1.0;
@@ -322,8 +369,18 @@ function renderLoop() {
     const pulse = 0.75 + 0.25 * Math.sin(Date.now() * 0.004);
 
     eigenGroup.children.forEach(line => {
-        line.material.opacity = glowStrength * 0.85 * pulse;
-        if (line.userData.originalVector) {
+        // Opacity animation updates light-weight parameters every frame
+        let isHovered = (window.hoveredEigenIndices && window.hoveredEigenIndices.includes(line.userData.eigenIndex));
+        let isAnyHovered = (window.hoveredEigenIndices !== null);
+        let highlightFactor = 1.0;
+        if (isAnyHovered) {
+            highlightFactor = isHovered ? 2.0 : 0.2; // ホバーされた軸は強く、他は薄く
+        }
+
+        line.material.opacity = glowStrength * 0.85 * pulse * highlightFactor;
+        
+        // Optimize: Heavy geometry updates only happen on matrix changes
+        if (isMatrixChanged && line.userData.originalVector) {
             let orig = line.userData.originalVector;
             let tx = currentMatrix[0][0] * orig.x + currentMatrix[0][1] * orig.y + currentMatrix[0][2] * orig.z;
             let ty = currentMatrix[1][0] * orig.x + currentMatrix[1][1] * orig.y + currentMatrix[1][2] * orig.z;
@@ -368,7 +425,21 @@ function renderLoop() {
     }
 }
 
-renderLoop();
+// 外部からレンダーループを制御するインターフェース
+window.startApp3D = function () {
+    if (!animationId) {
+        renderLoop();
+    }
+};
+
+window.stopApp3D = function () {
+    if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    }
+};
+
+// 初期表示は2Dモードのため、3Dレンダーループは起動しません
 
 // --- Click Event: Matrix Transform (3D Part) ---
 /**
@@ -447,7 +518,7 @@ document.getElementById('btn-transform').addEventListener('click', async () => {
             return;
         }
 
-        eigenGroup.clear();
+        clearGroup(eigenGroup);
         isDiagonalizable = false;
         document.getElementById('btn-diagonalize').disabled = true;
 
@@ -482,7 +553,7 @@ document.getElementById('btn-transform').addEventListener('click', async () => {
                 throwOnError: false,
                 displayMode: false
             });
-            html += `<div class="eigdiv">${mathHtml}</div>`;
+            html += `<div class="eigdiv" data-indices="${indices.join(',')}">${mathHtml}</div>`;
 
             // Add 3D representation for each real eigenvector axis
             indices.forEach(idx => {
@@ -499,6 +570,7 @@ document.getElementById('btn-transform').addEventListener('click', async () => {
                     const geom = new THREE.BufferGeometry().setFromPoints([v3.clone().negate(), v3]);
                     const line = new THREE.Line(geom, mat);
                     line.userData.originalVector = new THREE.Vector3(vecF[0], vecF[1], vecF[2]);
+                    line.userData.eigenIndex = idx; // 固有ベクトルのインデックスを保持
                     line.computeLineDistances(); // 破線描画に必要
                     eigenGroup.add(line);
                 }
@@ -533,7 +605,7 @@ document.getElementById('btn-transform').addEventListener('click', async () => {
         let isSymmetric = true;
         for (let i = 0; i < 3; i++) {
             for (let j = 0; j < 3; j++) {
-                if (m[i][j] !== m[j][i]) isSymmetric = false;
+                if (Math.abs(m[i][j] - m[j][i]) > 1e-9) isSymmetric = false;
             }
         }
         if (isSymmetric) {
@@ -542,6 +614,17 @@ document.getElementById('btn-transform').addEventListener('click', async () => {
             </div>`;
             statusEl.innerHTML = symHtml + statusEl.innerHTML;
         }
+
+        // 3Dホバー連動イベントの登録
+        statusEl.querySelectorAll('.eigdiv').forEach(el => {
+            el.addEventListener('mouseenter', () => {
+                const idxs = el.getAttribute('data-indices').split(',').map(Number);
+                window.hoveredEigenIndices = idxs;
+            });
+            el.addEventListener('mouseleave', () => {
+                window.hoveredEigenIndices = null;
+            });
+        });
 
         transformState = 1;
         highlightTick = 0;

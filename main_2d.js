@@ -12,15 +12,29 @@
 
     let width, height, centerX, centerY;
 
+    function debounce(func, wait) {
+        let timeout;
+        return function (...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    }
+
     function resize() {
         width = container.clientWidth;
         height = container.clientHeight;
         centerX = width / 2;
         centerY = height / 2;
-        canvas.width = width;
-        canvas.height = height;
+        
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // 毎回初期化して安全にスケール適用
     }
-    window.addEventListener('resize', resize);
+    window.addEventListener('resize', debounce(resize, 100));
     window.resizeCanvas2D = resize;
     resize();
 
@@ -34,6 +48,10 @@
     let eigenvalues = [];
     let matrixP = null, matrixD = null, matrixPInv = null;
     let isDiagonalizable = false;
+
+    // Hover highlight states shared globally
+    window.hoveredEigenIndices = null;
+    window.hoveredComplex = false;
 
     // Complex invariant space variables
     let complexU = null;
@@ -59,17 +77,36 @@
         updateHUD("待機中");
     };
 
+    // --- Helper Functions for Matrix Calculations (2D) ---
+    function interpolate2D(M1, M2, t) {
+        let easeT = 1 - Math.pow(1 - t, 3);
+        return [
+            [M1[0][0] + (M2[0][0] - M1[0][0]) * easeT, M1[0][1] + (M2[0][1] - M1[0][1]) * easeT],
+            [M1[1][0] + (M2[1][0] - M1[1][0]) * easeT, M1[1][1] + (M2[1][1] - M1[1][1]) * easeT]
+        ];
+    }
+
+    function multiply2D(A, B) {
+        return [
+            [A[0][0] * B[0][0] + A[0][1] * B[1][0], A[0][0] * B[0][1] + A[0][1] * B[1][1]],
+            [A[1][0] * B[0][0] + A[1][1] * B[1][0], A[1][0] * B[0][1] + A[1][1] * B[1][1]]
+        ];
+    }
+
     // --- Main 2D Animation Loop ---
     /**
      * 2Dキャンバスのメイン描画ループ。
      * 行列の変換アニメーション、グリッド、固有ベクトル、不変楕円などを毎フレーム描画します。
      * 状態(transformState)に応じて、補間アニメーションを実行します。
      */
-    function render() {
-        requestAnimationFrame(render);
+    let animationId = null;
 
-        // Render only if currently in 2D mode
-        if (!document.body.classList.contains('mode-2d')) return;
+    function render() {
+        if (!document.body.classList.contains('mode-2d')) {
+            animationId = null;
+            return;
+        }
+        animationId = requestAnimationFrame(render);
 
         // Update logic
         if (transformState === 1) {
@@ -128,33 +165,21 @@
             } else {
                 let p = animationProgress;
 
-                function interpolate(M1, M2, t) {
-                    let easeT = 1 - Math.pow(1 - t, 3);
-                    return [
-                        [M1[0][0] + (M2[0][0] - M1[0][0]) * easeT, M1[0][1] + (M2[0][1] - M1[0][1]) * easeT],
-                        [M1[1][0] + (M2[1][0] - M1[1][0]) * easeT, M1[1][1] + (M2[1][1] - M1[1][1]) * easeT]
-                    ];
-                }
-
-                function multiply(A, B) {
-                    return [
-                        [A[0][0] * B[0][0] + A[0][1] * B[1][0], A[0][0] * B[0][1] + A[0][1] * B[1][1]],
-                        [A[1][0] * B[0][0] + A[1][1] * B[1][0], A[1][0] * B[0][1] + A[1][1] * B[1][1]]
-                    ];
-                }
-
                 const Identity = [[1, 0], [0, 1]];
                 if (p < 1) {
-                    currentMatrix = interpolate(Identity, matrixPInv, p);
+                    let localEase = 1 - Math.pow(1 - p, 3); // Cubic Ease Out
+                    currentMatrix = interpolate2D(Identity, matrixPInv, localEase);
                     stepLabel = "Step 1: 基底変換 (P⁻¹)";
                 } else if (p < 2) {
-                    let d_p_inv = multiply(matrixD, matrixPInv);
-                    currentMatrix = interpolate(matrixPInv, d_p_inv, p - 1);
+                    let localEase = 1 - Math.pow(1 - (p - 1), 3);
+                    let d_p_inv = multiply2D(matrixD, matrixPInv);
+                    currentMatrix = interpolate2D(matrixPInv, d_p_inv, localEase);
                     stepLabel = "Step 2: 固有値倍 (D)";
                 } else {
-                    let d_p_inv = multiply(matrixD, matrixPInv);
-                    let p_d_p_inv = multiply(matrixP, d_p_inv);
-                    currentMatrix = interpolate(d_p_inv, p_d_p_inv, p - 2);
+                    let localEase = 1 - Math.pow(1 - (p - 2), 3);
+                    let d_p_inv = multiply2D(matrixD, matrixPInv);
+                    let p_d_p_inv = multiply2D(matrixP, d_p_inv);
+                    currentMatrix = interpolate2D(d_p_inv, p_d_p_inv, localEase);
                     stepLabel = "Step 3: 元の基底へ (P)";
                 }
             }
@@ -224,23 +249,36 @@
                     let dx = tx;
                     let dy = -ty; // Canvas Y axis is downwards
 
+                    let isHovered = (window.hoveredEigenIndices && window.hoveredEigenIndices.includes(j));
+                    let isAnyHovered = (window.hoveredEigenIndices !== null);
+                    let highlightFactor = 1.0;
+                    if (isAnyHovered) {
+                        highlightFactor = isHovered ? 2.0 : 0.25;
+                    }
+
                     ctx.lineCap = "round";
 
                     ctx.beginPath();
                     ctx.moveTo(centerX - dx, centerY - dy); ctx.lineTo(centerX + dx, centerY + dy);
-                    ctx.strokeStyle = `rgba(0, 229, 255, ${0.12 * glowStrength})`; ctx.lineWidth = 16; ctx.stroke();
+                    ctx.strokeStyle = `rgba(0, 229, 255, ${0.12 * glowStrength * highlightFactor})`; ctx.lineWidth = 16; ctx.stroke();
 
                     ctx.beginPath();
                     ctx.moveTo(centerX - dx, centerY - dy); ctx.lineTo(centerX + dx, centerY + dy);
-                    ctx.strokeStyle = `rgba(0, 229, 255, ${0.4 * glowStrength})`; ctx.lineWidth = 4; ctx.stroke();
+                    ctx.strokeStyle = `rgba(0, 229, 255, ${0.4 * glowStrength * highlightFactor})`; ctx.lineWidth = 4; ctx.stroke();
 
                     ctx.beginPath();
                     ctx.moveTo(centerX - dx, centerY - dy); ctx.lineTo(centerX + dx, centerY + dy);
-                    ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 * glowStrength})`; ctx.lineWidth = 1.2; ctx.stroke();
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 * glowStrength * (isHovered ? 1.0 : highlightFactor)})`; ctx.lineWidth = 1.2; ctx.stroke();
                 }
             } else if (complexU && complexW) {
                 // Complex Invariant Ellipse orbit
                 ctx.lineCap = "round";
+
+                let isHovered = (window.hoveredComplex === true);
+                let highlightFactor = isHovered ? 2.2 : 1.0;
+                if (window.hoveredEigenIndices !== null) {
+                    highlightFactor = 0.25;
+                }
 
                 function drawEllipsePath(c) {
                     c.beginPath();
@@ -257,13 +295,13 @@
 
                 // Ellipse glow (Vibrant Magenta)
                 drawEllipsePath(ctx);
-                ctx.strokeStyle = `rgba(168, 85, 247, ${0.15 * glowStrength})`; ctx.lineWidth = 16; ctx.stroke();
+                ctx.strokeStyle = `rgba(168, 85, 247, ${0.15 * glowStrength * highlightFactor})`; ctx.lineWidth = 16; ctx.stroke();
 
                 drawEllipsePath(ctx);
-                ctx.strokeStyle = `rgba(168, 85, 247, ${0.4 * glowStrength})`; ctx.lineWidth = 4; ctx.stroke();
+                ctx.strokeStyle = `rgba(168, 85, 247, ${0.4 * glowStrength * highlightFactor})`; ctx.lineWidth = 4; ctx.stroke();
 
                 drawEllipsePath(ctx);
-                ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 * glowStrength})`; ctx.lineWidth = 1.5; ctx.stroke();
+                ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 * glowStrength * (isHovered ? 1.0 : highlightFactor)})`; ctx.lineWidth = 1.5; ctx.stroke();
 
                 // Track dynamic warping ellipse
                 if (transformState > 1 && ease > 0 && ease < 1) {
@@ -374,7 +412,22 @@
         ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
     }
 
-    requestAnimationFrame(render);
+    // 外部からレンダーループを制御するインターフェース
+    window.startApp2D = function () {
+        if (!animationId) {
+            render();
+        }
+    };
+
+    window.stopApp2D = function () {
+        if (animationId) {
+            cancelAnimationFrame(animationId);
+            animationId = null;
+        }
+    };
+
+    // 初期起動時に2Dモードのレンダリングを開始
+    window.startApp2D();
 
     // ==========================================================================
     // MATHEMATICAL WEB WORKER CONTROLLER (2D/3D SHARED ENGINE INITIALIZATION)
@@ -542,7 +595,7 @@
                 let vecLatex1 = resData.eigenvectors_latex[0][1];
                 let mathHtml = katex.renderToString(`\\lambda = ${lambdaLatex},\\quad \\vec{v} = \\begin{bmatrix} ${vecLatex0} \\\\ ${vecLatex1} \\end{bmatrix}`, { throwOnError: false });
 
-                html += `<div class="eigdiv">${mathHtml}</div>`;
+                html += `<div class="eigdiv" data-complex="true">${mathHtml}</div>`;
 
                 complexU = resData.complex_u;
                 complexW = resData.complex_w;
@@ -592,7 +645,7 @@
                         throwOnError: false,
                         displayMode: false
                     });
-                    html += `<div class="eigdiv">${mathHtml}</div>`;
+                    html += `<div class="eigdiv" data-indices="${indices.join(',')}">${mathHtml}</div>`;
 
                     indices.forEach(idx => {
                         let vecF = resData.eigenvectors_float[idx];
@@ -624,12 +677,28 @@
             }
 
             // Add symmetric matrix badge
-            if (m01 === m10) {
+            if (Math.abs(m01 - m10) < 1e-9) {
                 const symHtml = `<div class="symmetric-badge">
                     <span>✨ <b>対称行列</b>: 直交行列により対角化可能です（固有ベクトルが直交します）。</span>
                 </div>`;
                 statusEl.innerHTML = symHtml + statusEl.innerHTML;
             }
+
+            // ホバー連動イベントの登録
+            statusEl.querySelectorAll('.eigdiv').forEach(el => {
+                el.addEventListener('mouseenter', () => {
+                    if (el.getAttribute('data-complex') === 'true') {
+                        window.hoveredComplex = true;
+                    } else {
+                        const idxs = el.getAttribute('data-indices').split(',').map(Number);
+                        window.hoveredEigenIndices = idxs;
+                    }
+                });
+                el.addEventListener('mouseleave', () => {
+                    window.hoveredEigenIndices = null;
+                    window.hoveredComplex = false;
+                });
+            });
 
             transformState = 1;
             highlightTick = 0;

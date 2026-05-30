@@ -43,6 +43,15 @@ def calculate_eigen_json(matrix_str):
                         return f"{sign if sign == '-' else ''}{im_str}i"
                     return f"{re_str} {sign} {im_str}i"
 
+        def clean_complex(val):
+            val_f = val.evalf()
+            re_val = float(sp.re(val_f))
+            im_val = float(sp.im(val_f))
+            # 1e-10以下の極めて微小な虚部は数値演算ノイズとみなして0.0に丸める
+            if abs(im_val) < 1e-10:
+                im_val = 0.0
+            return re_val, im_val
+
         if n == 2:
             M = sp.Matrix([
                 [sp.Rational(str(matrix[0][0])), sp.Rational(str(matrix[0][1]))],
@@ -62,18 +71,32 @@ def calculate_eigen_json(matrix_str):
                 eigen_data = M.eigenvects()
                 eigenvalues_latex = []
                 eigenvectors_latex = []
+                eigenvalues_complex = []
+                eigenvectors_complex = []
                 
                 for val, mult, vects in eigen_data:
                     l_latex = format_latex(val)
+                    re_val, im_val = clean_complex(val)
+                    
                     for v in vects:
                         eigenvalues_latex.append(l_latex)
+                        eigenvalues_complex.append([re_val, im_val])
                         eigenvectors_latex.append([format_latex(v[0]), format_latex(v[1])])
+                        
+                        v_comp = []
+                        for comp in v:
+                            re_c, im_c = clean_complex(comp)
+                            v_comp.append([re_c, im_c])
+                        eigenvectors_complex.append(v_comp)
                 
                 val, mult, vects = eigen_data[0]
                 v = vects[0]
                 
-                u = [float(sp.re(v[0]).evalf()), float(sp.re(v[1]).evalf())]
-                w = [float(sp.im(v[0]).evalf()), float(sp.im(v[1]).evalf())]
+                # 複素固有ベクトルの実部・虚部を抽出
+                re_v0, im_v0 = clean_complex(v[0])
+                re_v1, im_v1 = clean_complex(v[1])
+                u = [re_v0, re_v1]
+                w = [im_v0, im_v1]
                 
                 return json.dumps({
                     "dim": 2,
@@ -84,7 +107,9 @@ def calculate_eigen_json(matrix_str):
                     "eigenvalues_float": [],
                     "eigenvectors_float": [],
                     "eigenvalues_latex": eigenvalues_latex,
-                    "eigenvectors_latex": eigenvectors_latex
+                    "eigenvectors_latex": eigenvectors_latex,
+                    "eigenvalues_complex": eigenvalues_complex,
+                    "eigenvectors_complex": eigenvectors_complex
                 })
                 
             eigen_data = M.eigenvects()
@@ -93,21 +118,30 @@ def calculate_eigen_json(matrix_str):
             eigenvalues_float = []
             eigenvectors_float = []
             eigenvectors_latex = []
+            eigenvalues_complex = []
+            eigenvectors_complex = []
             
             for val, mult, vects in eigen_data:
-                val_f = val.evalf()
-                l_float = float(sp.re(val_f))
                 l_latex = format_latex(val)
+                re_val, im_val = clean_complex(val)
+                l_float = re_val
                 
                 for v in vects:
                     eigenvalues_latex.append(l_latex)
                     eigenvalues_float.append(l_float)
+                    eigenvalues_complex.append([re_val, im_val])
                     
-                    v1_float = float(sp.re(v[0].evalf()))
-                    v2_float = float(sp.re(v[1].evalf()))
-                    eigenvectors_float.append([v1_float, v2_float])
+                    re_v1, _ = clean_complex(v[0])
+                    re_v2, _ = clean_complex(v[1])
+                    eigenvectors_float.append([re_v1, re_v2])
                     
                     eigenvectors_latex.append([format_latex(v[0]), format_latex(v[1])])
+                    
+                    v_comp = []
+                    for comp in v:
+                        re_c, im_c = clean_complex(comp)
+                        v_comp.append([re_c, im_c])
+                    eigenvectors_complex.append(v_comp)
             
             is_diagonalizable = False
             p_matrix = []
@@ -116,16 +150,19 @@ def calculate_eigen_json(matrix_str):
             not_diagonalizable_reason = None
 
             try:
-                num_eigenvectors = len(eigenvectors_float)
-                if num_eigenvectors == 2:
+                if M.is_diagonalizable():
                     P, D = M.diagonalize()
                     
                     if P.det() != 0:
                         P_inv = P.inv()
                         
                         def mat_to_list(mat):
-                            return [[float(sp.re(mat[0,0].evalf())), float(sp.re(mat[0,1].evalf()))],
-                                    [float(sp.re(mat[1,0].evalf())), float(sp.re(mat[1,1].evalf()))]]
+                            # 対角化行列の値もclean_complexで浮動小数点化
+                            r00, _ = clean_complex(mat[0,0])
+                            r01, _ = clean_complex(mat[0,1])
+                            r10, _ = clean_complex(mat[1,0])
+                            r11, _ = clean_complex(mat[1,1])
+                            return [[r00, r01], [r10, r11]]
                         
                         p_matrix = mat_to_list(P)
                         d_matrix = mat_to_list(D)
@@ -149,6 +186,8 @@ def calculate_eigen_json(matrix_str):
                 "eigenvectors_float": eigenvectors_float,
                 "eigenvalues_latex": eigenvalues_latex,
                 "eigenvectors_latex": eigenvectors_latex,
+                "eigenvalues_complex": eigenvalues_complex,
+                "eigenvectors_complex": eigenvectors_complex,
                 "is_diagonalizable": is_diagonalizable,
                 "matrix_p": p_matrix,
                 "matrix_d": d_matrix,
@@ -170,25 +209,34 @@ def calculate_eigen_json(matrix_str):
             eigenvectors_float = []
             eigenvectors_latex = []
             has_complex_eigenvectors = False
+            eigenvalues_complex = []
+            eigenvectors_complex = []
             
             for val, mult, vects in eigen_data:
-                val_f = val.evalf()
-                l_float = float(sp.re(val_f))
                 l_latex = format_latex(val)
+                re_val, im_val = clean_complex(val)
+                l_float = re_val
                 
-                if abs(float(sp.im(val_f))) > 1e-6:
+                if abs(im_val) > 1e-6:
                     has_complex_eigenvectors = True
                 
                 for v in vects:
                     eigenvalues_latex.append(l_latex)
                     eigenvalues_float.append(l_float)
+                    eigenvalues_complex.append([re_val, im_val])
                     
-                    v1_float = float(sp.re(v[0].evalf()))
-                    v2_float = float(sp.re(v[1].evalf()))
-                    v3_float = float(sp.re(v[2].evalf()))
-                    eigenvectors_float.append([v1_float, v2_float, v3_float])
+                    re_v1, _ = clean_complex(v[0])
+                    re_v2, _ = clean_complex(v[1])
+                    re_v3, _ = clean_complex(v[2])
+                    eigenvectors_float.append([re_v1, re_v2, re_v3])
                     
                     eigenvectors_latex.append([format_latex(v[0]), format_latex(v[1]), format_latex(v[2])])
+                    
+                    v_comp = []
+                    for comp in v:
+                        re_c, im_c = clean_complex(comp)
+                        v_comp.append([re_c, im_c])
+                    eigenvectors_complex.append(v_comp)
             
             is_diagonalizable = False
             p_matrix = []
@@ -197,17 +245,25 @@ def calculate_eigen_json(matrix_str):
             not_diagonalizable_reason = None
 
             try:
-                num_eigenvectors = len(eigenvectors_float)
-                if num_eigenvectors == 3 and not has_complex_eigenvectors:
+                if M.is_diagonalizable() and not has_complex_eigenvectors:
                     P, D = M.diagonalize()
                     
                     if P.det() != 0:
                         P_inv = P.inv()
                         
                         def mat_to_list(mat):
-                            return [[float(sp.re(mat[0,0].evalf())), float(sp.re(mat[0,1].evalf())), float(sp.re(mat[0,2].evalf()))],
-                                    [float(sp.re(mat[1,0].evalf())), float(sp.re(mat[1,1].evalf())), float(sp.re(mat[1,2].evalf()))],
-                                    [float(sp.re(mat[2,0].evalf())), float(sp.re(mat[2,1].evalf())), float(sp.re(mat[2,2].evalf()))]]
+                            r00, _ = clean_complex(mat[0,0])
+                            r01, _ = clean_complex(mat[0,1])
+                            r02, _ = clean_complex(mat[0,2])
+                            r10, _ = clean_complex(mat[1,0])
+                            r11, _ = clean_complex(mat[1,1])
+                            r12, _ = clean_complex(mat[1,2])
+                            r20, _ = clean_complex(mat[2,0])
+                            r21, _ = clean_complex(mat[2,1])
+                            r22, _ = clean_complex(mat[2,2])
+                            return [[r00, r01, r02],
+                                    [r10, r11, r12],
+                                    [r20, r21, r22]]
                         
                         p_matrix = mat_to_list(P)
                         d_matrix = mat_to_list(D)
@@ -233,6 +289,8 @@ def calculate_eigen_json(matrix_str):
                 "eigenvectors_float": eigenvectors_float,
                 "eigenvalues_latex": eigenvalues_latex,
                 "eigenvectors_latex": eigenvectors_latex,
+                "eigenvalues_complex": eigenvalues_complex,
+                "eigenvectors_complex": eigenvectors_complex,
                 "is_diagonalizable": is_diagonalizable,
                 "matrix_p": p_matrix,
                 "matrix_d": d_matrix,
