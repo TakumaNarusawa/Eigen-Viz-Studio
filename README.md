@@ -46,7 +46,7 @@ Eigen-Viz Studio は、線形代数学における「線形変換」「固有値
 
 ```bash
 # 1. リポジトリのクローン
-git clone https://github.com/あなたのユーザー名/Eigen-Viz-Studio.git
+git clone https://github.com/TakumaNarusawa/Eigen-Viz-Studio.git
 cd Eigen-Viz-Studio
 
 # 2. ローカルサーバーの起動 (例: Python)
